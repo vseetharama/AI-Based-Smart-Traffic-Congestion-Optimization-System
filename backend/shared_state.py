@@ -56,6 +56,7 @@ controller_state = {
         "road3": {},
         "road4": {},
     },
+    "system_status": "WAITING_FOR_VIDEO",
     "timestamp": None,
 }
 

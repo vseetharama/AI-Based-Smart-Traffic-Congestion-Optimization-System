@@ -68,6 +68,8 @@ def initialize_threads():
         return
     _threads_started = True
     _initialize_worker_threads()
+    # Start controller thread but the controller will set system_status
+    # and only begin switching when all roads report valid video data.
     _initialize_controller_thread()
 
 
@@ -138,6 +140,7 @@ def dashboard():
             "current_timer": controller_state.get("current_timer"),
             "road_summaries": road_summaries,
             "timestamp": controller_state.get("timestamp"),
+            "system_status": controller_state.get("system_status", "WAITING_FOR_VIDEO"),
         }
     return jsonify(response), 200
 

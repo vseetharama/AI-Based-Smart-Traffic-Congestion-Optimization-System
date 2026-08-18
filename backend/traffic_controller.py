@@ -169,12 +169,26 @@ class TrafficController:
             else:
                 summary["waiting_time"] = waiting_times.get(rid, 0)
 
+        # Determine overall system status based on whether all roads have recent video
+        # data available. If any road has no last_updated timestamp, we are still
+        # waiting for video uploads. If all roads have data but controller hasn't
+        # started switching, mark PROCESSING briefly; otherwise RUNNING.
+        all_have_video = all(
+            (snapshot.get(rid, {}).get("last_updated") is not None) for rid in ["road1", "road2", "road3", "road4"]
+        )
+        # If controller hasn't picked a green road yet but we have video, move to PROCESSING
+        if not all_have_video:
+            system_status = "WAITING_FOR_VIDEO"
+        else:
+            system_status = "RUNNING"
+
         with controller_state_lock:
             controller_state.update({
                 "current_green_road": current_green_road,
                 "current_timer": current_timer,
                 "road_summaries": road_summaries,
                 "timestamp": timestamp,
+                "system_status": system_status,
             })
 
     def start(self):
@@ -187,6 +201,15 @@ class TrafficController:
             try:
                 with road_results_lock:
                     snapshot = {road_id: data.copy() for road_id, data in road_results.items()}
+
+                # If not all roads have reported initial frames, do not run switching logic.
+                all_have_video = all((snapshot.get(rid, {}).get("last_updated") is not None) for rid in ["road1", "road2", "road3", "road4"])
+
+                if not all_have_video:
+                    # Update state to reflect waiting-for-video and skip switching.
+                    self._update_controller_state(None, 0, snapshot)
+                    time.sleep(self.cycle_interval)
+                    continue
 
                 if self.current_timer > 0 and self.current_green_road is not None:
                     self.current_timer -= 1
@@ -212,7 +235,10 @@ class TrafficController:
                 self._update_controller_state(self.current_green_road, self.current_timer, snapshot)
                 with controller_state_lock:
                     road_summaries = controller_state.get("road_summaries", {})
-                self._traffic_logger.log_snapshot(road_summaries, self.current_green_road, self.current_timer)
+                    system_status = controller_state.get("system_status", "WAITING_FOR_VIDEO")
+                # Only log snapshots to the persistent store once the system is RUNNING
+                if system_status == "RUNNING":
+                    self._traffic_logger.log_snapshot(road_summaries, self.current_green_road, self.current_timer)
             except Exception as e:
                 logger.error("TrafficController error: %s", e)
             finally:

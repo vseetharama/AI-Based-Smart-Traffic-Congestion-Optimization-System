@@ -112,6 +112,9 @@ class Worker:
                 if self.frame_index % self.frame_skip != 0:
                     continue
 
+                # If system is still waiting for video, skip processing until
+                # all roads have initial data. This prevents workers from
+                # updating partial state that could trigger the controller.
                 if self._is_current_green():
                     # Pause YOLO detections for the current GREEN road to avoid
                     # writing artificial zero values. Keep previous road state

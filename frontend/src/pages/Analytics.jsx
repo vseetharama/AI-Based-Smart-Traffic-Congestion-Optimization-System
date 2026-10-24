@@ -2,24 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout";
 import BackendStatus from "../components/BackendStatus";
-import SummaryPanel from "../components/SummaryPanel";
-import InsightsPanel from "../components/InsightsPanel";
 import ChartsPanel from "../components/ChartsPanel";
 import InsightCard from "../components/InsightCard";
 import { getDashboard, getAnalyticsToday, getAnalyticsWeekly, getAnalyticsMonthly, exportAnalyticsReport } from "../api/trafficApi";
 
-function formatTimestamp(timestamp) {
-  if (!timestamp) return "Not available";
-
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return "Not available";
-
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
+import { formatTimestamp, formatTime } from "../utils/dateUtils";
 
 function Analytics() {
   const navigate = useNavigate();
@@ -28,7 +15,7 @@ function Analytics() {
   const [error, setError] = useState("");
   const [dashboardData, setDashboardData] = useState(null);
   const [trendData, setTrendData] = useState([]);
-  const [selectedView, setSelectedView] = useState("live");
+  const [selectedView, setSelectedView] = useState("today");
   const [historicalSummary, setHistoricalSummary] = useState(null);
   const [historicalCharts, setHistoricalCharts] = useState(null);
   const [exporting, setExporting] = useState(false);
@@ -100,7 +87,7 @@ function Analytics() {
         const totalVehicles = mappedRoads.reduce((sum, road) => sum + (road.vehicleCount || 0), 0);
 
         setTrendData((previous) => {
-          const next = [...previous, { label: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }), totalVehicles }];
+          const next = [...previous, { label: formatTime(new Date()), totalVehicles }];
           return next.slice(-30);
         });
 
@@ -184,7 +171,7 @@ function Analytics() {
         leastBusyRoad: summary.leastBusyRoad || "None",
         highestDensity: summary.highestDensity || "NONE",
         currentTimer: 0,
-        roadCount: summary.records || 0,
+        roadCount: summary.roadCount || 0,
         systemStatus: error ? "OFFLINE" : "RUNNING",
         lastUpdated: summary.lastUpdated ? formatTimestamp(summary.lastUpdated) : "Not available",
         hasTraffic: (summary.totalVehicles || 0) > 0,

@@ -5,8 +5,14 @@ import csv
 import io
 from datetime import datetime, timedelta, timezone
 
-from analytics import get_history, get_today_summary, get_weekly_summary, get_monthly_summary
-from analytics import _filter_meaningful_records
+from analytics import (
+    get_history,
+    get_today_summary,
+    get_weekly_summary,
+    get_monthly_summary,
+    format_timestamp_for_display,
+    _filter_meaningful_records,
+)
 
 
 def build_report_range(range_name: str):
@@ -24,6 +30,11 @@ def build_report_range(range_name: str):
         start = now - timedelta(days=30)
         end = now
     return start, end
+
+
+def _get_range_records(range_name: str):
+    start, end = build_report_range(range_name)
+    return get_history(start_date=start.isoformat(), end_date=end.isoformat(), include_idle=False, limit=None)
 
 
 def _build_summary_payload(range_name: str):
@@ -51,9 +62,10 @@ def build_pdf_report(range_name: str):
 
     summary = payload.get("summary", {})
     charts = payload.get("charts", {})
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # generated_at should be shown in Asia/Kolkata local time with required format
+    generated_at = format_timestamp_for_display(datetime.now(timezone.utc))
 
-    records = _filter_meaningful_records(get_history())
+    records = _get_range_records(range_name)
     summary_lines = [
         "AI-Based Smart Traffic Congestion Optimization System",
         "",
@@ -115,7 +127,7 @@ def build_pdf_report(range_name: str):
     return base64.b64encode(pdf_bytes).decode("ascii")
 
 
-def build_csv_report(range_name: str = "today", records=None):
+def build_csv_report(range_name="today", records=None):
     if records is None:
         try:
             payload = _build_summary_payload(range_name)
@@ -125,21 +137,48 @@ def build_csv_report(range_name: str = "today", records=None):
         if payload.get("status") != "success":
             raise ValueError("No data available for export.")
 
-        records = get_history()
+        records = _get_range_records(range_name)
+    else:
+        records = _filter_meaningful_records(records)
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Timestamp", "Road", "Vehicle Count", "Density", "Signal Status", "Waiting Time", "Recommended Green Time", "Prediction"])
-    filtered_records = _filter_meaningful_records(records)
-    for record in sorted(filtered_records, key=lambda item: item.get("timestamp") or datetime.min, reverse=True):
+
+    writer.writerow([
+        "Timestamp",
+        "Road",
+        "Vehicle Count",
+        "Density",
+        "Signal Status",
+        "Waiting Time",
+        "Recommended Green Time",
+        "Prediction"
+    ])
+
+    records = sorted(
+        records,
+        key=lambda r: r.get("timestamp") or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+
+    for record in records:
+        prediction_status = str(record.get("prediction_status", "")).strip().lower()
+        if prediction_status == "success" and record.get("predicted_vehicle_count") is not None:
+            prediction_value = str(record.get("predicted_vehicle_count"))
+        else:
+            prediction_value = record.get("prediction")
+            if not prediction_value or str(prediction_value).strip().lower() in {"unknown", "no video", "no_video", ""}:
+                prediction_value = "unknown"
+
         writer.writerow([
-            record.get("timestamp"),
+            format_timestamp_for_display(record.get("timestamp")),
             record.get("road_name") or f"Road {record.get('road_id', '')}",
             record.get("vehicle_count", 0),
             record.get("density_level", "LOW"),
             record.get("signal_status", "UNKNOWN"),
             record.get("waiting_time", 0),
             record.get("recommended_green_time", 0),
-            record.get("prediction", "N/A"),
+            prediction_value,
         ])
+
     return output.getvalue()

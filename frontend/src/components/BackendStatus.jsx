@@ -14,7 +14,7 @@ function BackendStatus() {
         if (isMounted) {
           setStatus(data && data.status === "Backend is running" ? "online" : "offline");
         }
-      } catch (error) {
+      } catch {
         if (isMounted) {
           setStatus("offline");
         }

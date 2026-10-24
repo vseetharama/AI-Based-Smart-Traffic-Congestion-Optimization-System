@@ -5,11 +5,17 @@ import os
 import time
 from threading import Thread
 from werkzeug.utils import secure_filename
-from shared_state import controller_state, controller_state_lock
+from shared_state import (
+    controller_state,
+    controller_state_lock,
+    road_results,
+    road_results_lock,
+)
 from worker import Worker
 from traffic_controller import TrafficController
 from database import get_database, get_database_name
 from analytics import get_history, get_today_summary, get_weekly_summary, get_monthly_summary
+from analytics import format_timestamp_for_display
 from reports import build_pdf_report, build_csv_report
 
 # Initialize Flask app
@@ -23,7 +29,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB max file size
+app.config["MAX_CONTENT_LENGTH"] =  2 * 1024 * 1024 * 1024 # 2gb max file size
 
 # Create worker instances and controller
 workers = {}
@@ -62,6 +68,8 @@ def initialize_threads():
         return
     _threads_started = True
     _initialize_worker_threads()
+    # Start controller thread but the controller will set system_status
+    # and only begin switching when all roads report valid video data.
     _initialize_controller_thread()
 
 
@@ -112,16 +120,27 @@ def upload_files():
 
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
-    with controller_state_lock:
-        road_summaries = {
-            road_id: summary.copy()
-            for road_id, summary in controller_state.get("road_summaries", {}).items()
+    with road_results_lock:
+        latest_predictions = {
+            road_id: data.copy()
+            for road_id, data in road_results.items()
         }
+
+    with controller_state_lock:
+        road_summaries = {}
+        for road_id, summary in controller_state.get("road_summaries", {}).items():
+            enriched_summary = summary.copy()
+            prediction_data = latest_predictions.get(road_id, {})
+            enriched_summary["predicted_vehicle_count"] = prediction_data.get("predicted_vehicle_count", 0)
+            enriched_summary["prediction_status"] = prediction_data.get("prediction_status", "failure")
+            road_summaries[road_id] = enriched_summary
+
         response = {
             "current_green_road": controller_state.get("current_green_road"),
             "current_timer": controller_state.get("current_timer"),
             "road_summaries": road_summaries,
             "timestamp": controller_state.get("timestamp"),
+            "system_status": controller_state.get("system_status", "WAITING_FOR_VIDEO"),
         }
     return jsonify(response), 200
 
@@ -140,7 +159,14 @@ def analytics_history():
         records = get_history(start_date=start_date, end_date=end_date)
         if not records:
             return jsonify({"status": "error", "message": "No analytics records found"}), 404
-        return jsonify({"status": "success", "records": records}), 200
+        # Convert timestamps to Asia/Kolkata formatted strings for consistent frontend display
+        formatted = []
+        for r in records:
+            rec = r.copy()
+            rec_timestamp = rec.get("timestamp")
+            rec["timestamp"] = format_timestamp_for_display(rec_timestamp) if rec_timestamp else None
+            formatted.append(rec)
+        return jsonify({"status": "success", "records": formatted}), 200
     except Exception as exc:
         return jsonify({"status": "error", "message": str(exc)}), 500
 
@@ -214,5 +240,6 @@ def export_csv_report():
 if __name__ == "__main__":
     initialize_mongodb()
     start_background_threads()
-    print("🚀 Starting Flask server on http://localhost:5000")
-    app.run(debug=True, host="localhost", port=5000)
+    debug_mode = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("1", "true", "yes")
+    print("🚀 Starting Flask server on http://0.0.0.0:5000")
+    app.run(debug=debug_mode, host="0.0.0.0", port=5000)

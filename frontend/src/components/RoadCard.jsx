@@ -4,14 +4,6 @@ import tokens from "../styles/tokens";
 import SignalLight from "./SignalLight";
 
 function RoadCard({ road }) {
-  const predictionText =
-    road.prediction === "unknown" && (!road.vehicleCount || road.vehicleCount === 0 || !road.lastUpdated)
-      ? "No Video"
-      : road.prediction;
-
-  const timerLabel = road.signal === "GREEN" ? "⏱ Remaining Time" : "⏳ Waiting Time";
-  const timerValue = road.signal === "GREEN" ? road.remainingTime ?? 0 : road.waitingTime ?? 0;
-
   return (
     <div style={{
       background: tokens.card,
@@ -36,10 +28,10 @@ function RoadCard({ road }) {
         {road.signal}
       </h4>
 
-      <p>🚗 Vehicles: {road.vehicleCount ?? 0}</p>
-      <p>📉 Density: {road.densityLevel || "Unknown"}</p>
-      <p>🧠 Prediction: {predictionText}</p>
-      <p>{timerLabel}: {timerValue} sec</p>
+      <p>🚗 Current Vehicles: {road.vehicleCount ?? 0}</p>
+      <p>📈 Traffic Density: {road.densityLevel || "Unknown"}</p>
+      <p>⏳ Estimated Waiting: {road.estimatedWaiting ?? 0} sec</p>
+      <p>🏷 Priority: {road.priority || ""}</p>
 
     </div>
   );

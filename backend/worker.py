@@ -1,10 +1,21 @@
-import cv2
+try:
+    import cv2
+except Exception:
+    cv2 = None
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from yolotest import detect_vehicles, load_yolo_model
-from shared_state import road_results, road_results_lock, yolo_inference_lock
+from prediction.history_loader import get_recent_history
+from prediction.predictor import predict_next_vehicle_count
+from shared_state import (
+    road_results,
+    road_results_lock,
+    controller_state,
+    controller_state_lock,
+    yolo_inference_lock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +36,10 @@ class Worker:
         self.frame_index = 0
         self.is_running = False
         self._current_source = video_source
+
+    def _is_current_green(self):
+        with controller_state_lock:
+            return controller_state.get("current_green_road") == self.road_id and (controller_state.get("current_timer") or 0) > 0
 
     def _open_video(self):
         if self.capture is not None:
@@ -55,26 +70,21 @@ class Worker:
             return "MEDIUM"
         return "LOW"
 
-    def _generate_prediction(self, vehicle_count, density_score):
-        if vehicle_count >= 20:
-            return "high"
-        if vehicle_count >= 10:
-            return "medium"
-        return "low"
-
     def _recommend_green_time(self, density_level):
         level = (density_level or "LOW").upper()
         return GREEN_TIME.get(level, GREEN_TIME["LOW"])
 
-    def _update_road_results(self, vehicle_count, density, prediction, recommended_green_time):
-        timestamp = datetime.now().isoformat()
+    def _update_road_results(self, vehicle_count, density, predicted_vehicle_count, prediction_status, recommended_green_time):
+        # store last_updated as timezone-aware UTC datetime
+        timestamp = datetime.now(timezone.utc)
         density_level = self._density_level(density)
         with road_results_lock:
             road_results[self.road_id].update({
                 "vehicle_count": vehicle_count,
                 "density_score": density,
                 "density_level": density_level,
-                "prediction": prediction,
+                "predicted_vehicle_count": predicted_vehicle_count,
+                "prediction_status": prediction_status,
                 "recommended_green_time": recommended_green_time,
                 "signal_status": road_results[self.road_id].get("signal_status", "red"),
                 "last_updated": timestamp,
@@ -102,6 +112,17 @@ class Worker:
                 if self.frame_index % self.frame_skip != 0:
                     continue
 
+                # If system is still waiting for video, skip processing until
+                # all roads have initial data. This prevents workers from
+                # updating partial state that could trigger the controller.
+                if self._is_current_green():
+                    # Pause YOLO detections for the current GREEN road to avoid
+                    # writing artificial zero values. Keep previous road state
+                    # unchanged so MongoDB and analytics receive only true
+                    # observations. Resume updates once the road becomes RED.
+                    time.sleep(0.01)
+                    continue
+
                 try:
                     with yolo_inference_lock:
                         vehicle_count, _, _ = detect_vehicles(frame, model=self.model)
@@ -111,10 +132,31 @@ class Worker:
 
                 density = self._calculate_density(vehicle_count)
                 density_level = self._density_level(density)
-                prediction = self._generate_prediction(vehicle_count, density)
+
+                predicted_vehicle_count = vehicle_count
+                prediction_status = "failure"
+                try:
+                    history_df = get_recent_history(self.road_id)
+                    prediction = predict_next_vehicle_count(
+                        history_df,
+                        road_id=self.road_id,
+                    )
+                    predicted_vehicle_count = prediction.get("predicted_vehicle_count", vehicle_count)
+                    prediction_status = "success"
+                except Exception as e:
+                    logger.error("LSTM prediction failed for %s: %s", self.road_id, e)
+                    predicted_vehicle_count = vehicle_count
+                    prediction_status = "failure"
+
                 recommended_green_time = self._recommend_green_time(density_level)
 
-                self._update_road_results(vehicle_count, density, prediction, recommended_green_time)
+                self._update_road_results(
+                    vehicle_count,
+                    density,
+                    predicted_vehicle_count,
+                    prediction_status,
+                    recommended_green_time,
+                )
 
         except FileNotFoundError as e:
             logger.error("Worker file error for %s: %s", self.road_id, e)

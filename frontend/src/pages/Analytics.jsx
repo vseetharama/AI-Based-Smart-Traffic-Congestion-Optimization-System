@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Layout from "../components/Layout";
 import BackendStatus from "../components/BackendStatus";
-import SummaryPanel from "../components/SummaryPanel";
-import InsightsPanel from "../components/InsightsPanel";
 import ChartsPanel from "../components/ChartsPanel";
 import InsightCard from "../components/InsightCard";
 import { getDashboard, getAnalyticsToday, getAnalyticsWeekly, getAnalyticsMonthly, exportAnalyticsReport } from "../api/trafficApi";

@@ -31,7 +31,7 @@ async function request(endpoint, options = {}) {
       throw error;
     }
 
-    throw new Error("An unexpected API error occurred.");
+    throw new Error("An unexpected API error occurred.", { cause: error });
   }
 }
 

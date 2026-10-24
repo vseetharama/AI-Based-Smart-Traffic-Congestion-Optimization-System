@@ -23,6 +23,7 @@ function AnimatedRoutes() {
           <Route path="/" element={<Home />} />
           <Route path="/members" element={<Members />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/live" element={<Dashboard liveOnly />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/upload" element={<Upload />} />
         </Routes>

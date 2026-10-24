@@ -240,5 +240,6 @@ def export_csv_report():
 if __name__ == "__main__":
     initialize_mongodb()
     start_background_threads()
+    debug_mode = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("1", "true", "yes")
     print("🚀 Starting Flask server on http://0.0.0.0:5000")
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=debug_mode, host="0.0.0.0", port=5000)

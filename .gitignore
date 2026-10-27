@@ -81,3 +81,9 @@ Thumbs.db
 # Trained AI Models
 backend/models/*.keras
 backend/models/*.pkl
+
+# =====================================
+# Local-only scratch / unwanted files
+# (moved here instead of deleted; never pushed to GitHub)
+# =====================================
+local-only/

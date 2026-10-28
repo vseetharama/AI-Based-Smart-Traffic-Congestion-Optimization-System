@@ -163,6 +163,8 @@ def analytics_history():
         formatted = []
         for r in records:
             rec = r.copy()
+            if "_id" in rec:
+                rec["_id"] = str(rec["_id"])
             rec_timestamp = rec.get("timestamp")
             rec["timestamp"] = format_timestamp_for_display(rec_timestamp) if rec_timestamp else None
             formatted.append(rec)

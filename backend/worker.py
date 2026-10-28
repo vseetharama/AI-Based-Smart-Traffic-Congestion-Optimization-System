@@ -36,6 +36,7 @@ class Worker:
         self.frame_index = 0
         self.is_running = False
         self._current_source = video_source
+        self._prediction_warning_logged = False
 
     def _is_current_green(self):
         with controller_state_lock:
@@ -141,12 +142,20 @@ class Worker:
                         history_df,
                         road_id=self.road_id,
                     )
-                    predicted_vehicle_count = prediction.get("predicted_vehicle_count", vehicle_count)
-                    prediction_status = "success"
+                    if prediction.get("status") == "success" and prediction.get("predicted_vehicle_count") is not None:
+                        predicted_vehicle_count = prediction["predicted_vehicle_count"]
+                        prediction_status = "success"
+                        self._prediction_warning_logged = False
+                    else:
+                        if not self._prediction_warning_logged:
+                            logger.warning(
+                                "LSTM prediction unavailable for %s: %s",
+                                self.road_id,
+                                prediction.get("message", "Prediction returned no result."),
+                            )
+                            self._prediction_warning_logged = True
                 except Exception as e:
                     logger.error("LSTM prediction failed for %s: %s", self.road_id, e)
-                    predicted_vehicle_count = vehicle_count
-                    prediction_status = "failure"
 
                 recommended_green_time = self._recommend_green_time(density_level)
 
